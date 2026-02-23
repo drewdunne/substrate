@@ -90,6 +90,12 @@ cmd_run() {
     # Write prompt to file in worktree (avoids shell escaping hell)
     echo "$prompt" > "${worktree_path}/.substrate-prompt"
 
+    # Stage credentials for the entrypoint to copy with correct ownership
+    mkdir -p "${worktree_path}/.substrate-auth"
+    cp "${CLAUDE_CONFIG_DIR}/.credentials.json" "${worktree_path}/.substrate-auth/"
+    cp "${CLAUDE_CONFIG_DIR}/settings.json" "${worktree_path}/.substrate-auth/" 2>/dev/null || true
+    chmod -R a+r "${worktree_path}/.substrate-auth"
+
     # Write the run script (avoids nested quoting issues with tmux)
     local run_script
     run_script=$(mktemp /tmp/substrate-run-XXXXXX.sh)
@@ -99,8 +105,8 @@ docker run -it --rm \\
     --name "${session_name}" \\
     --cpus ${DEFAULT_CPUS} \\
     --memory ${DEFAULT_MEMORY} \\
-    -v "${worktree_path}:/home/agent/workspace" \\
-    -v "${CLAUDE_CONFIG_DIR}:/home/agent/.claude:ro" \\
+    -v "${worktree_path}:/workspace" \\
+    -v "${worktree_path}/.substrate-auth:/tmp/substrate-auth:ro" \\
     ${SUBSTRATE_IMAGE} \\
     -p "\$(cat ${worktree_path}/.substrate-prompt)"
 
