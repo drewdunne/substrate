@@ -29,7 +29,7 @@ When you run `substrate run`, here's what happens:
    - Credentials mounted read-only at `/tmp/substrate-auth`
    - CPU and memory limits (default: 2 CPUs, 4GB RAM)
 
-5. **The container's entrypoint** (running as root) copies credentials into the agent user's home directory with correct ownership, fixes workspace permissions, then drops to a non-root `agent` user via `gosu` before launching Claude CLI. This dance is necessary because Claude CLI refuses to run as root, but Docker volume mounts inherit host file ownership which won't match the container's user.
+5. **The container's entrypoint** (running as root) adjusts the container's `agent` user to match your host UID/GID, copies credentials into the agent user's home directory, then drops to the `agent` user via `gosu` before launching Claude CLI. Matching UIDs means bind-mounted files keep correct ownership on the host -- no post-run cleanup needed.
 
 6. **Claude CLI starts** with `--dangerously-skip-permissions` and your prompt. It reads, writes, runs commands, and commits -- all inside the container against the worktree branch.
 
@@ -107,9 +107,20 @@ git diff main..substrate/fix-tests-a3f2
 
 ### Clean up
 
-Remove the worktree and branch when you're done:
+Remove the worktree and branch when you're done reviewing:
 
 ```bash
-git worktree remove /tmp/substrate/fix-tests-a3f2
-git branch -D substrate/fix-tests-a3f2
+substrate clean fix-tests-a3f2
+```
+
+Clean all stopped agents at once:
+
+```bash
+substrate clean --all
+```
+
+If an agent is still running, `clean` will refuse unless you pass `--force` (which stops it first):
+
+```bash
+substrate clean fix-tests-a3f2 --force
 ```

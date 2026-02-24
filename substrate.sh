@@ -21,6 +21,7 @@ Commands:
     attach    Attach to a running agent session
     list      List running agents
     stop      Stop a running agent and clean up
+    clean     Remove worktree and branch for a stopped agent
 
 Run options:
     --repo <path>      Path to the git repository (required)
@@ -28,11 +29,18 @@ Run options:
     --prompt <text>    The prompt/task for the agent (required)
     --attach           Immediately attach to the agent after starting
 
+Clean options:
+    <name>             Clean a specific agent's worktree and branch
+    --all              Clean all stopped substrate worktrees/branches
+    --force            Stop running container before cleaning
+
 Examples:
     substrate run --repo ~/repos/tinyhost --name fix-tests --prompt "Fix failing tests"
     substrate attach fix-tests-a3f2
     substrate list
     substrate stop fix-tests-a3f2
+    substrate clean fix-tests-a3f2
+    substrate clean --all
 EOF
 }
 
@@ -105,6 +113,9 @@ docker run -it --rm \\
     --name "${session_name}" \\
     --cpus ${DEFAULT_CPUS} \\
     --memory ${DEFAULT_MEMORY} \\
+    -e HOST_UID=\$(id -u) \\
+    -e HOST_GID=\$(id -g) \\
+    -v "${repo}/.git:${repo}/.git" \\
     -v "${worktree_path}:/workspace" \\
     -v "${worktree_path}/.substrate-auth:/tmp/substrate-auth:ro" \\
     ${SUBSTRATE_IMAGE} \\
@@ -166,6 +177,107 @@ cmd_stop() {
     echo "Stopped: ${name}"
 }
 
+cmd_clean() {
+    local force=false
+    local clean_all=false
+    local name=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --all) clean_all=true; shift ;;
+            --force) force=true; shift ;;
+            *) name="$1"; shift ;;
+        esac
+    done
+
+    if ! $clean_all && [[ -z "$name" ]]; then
+        echo "Usage: substrate clean <name> [--force]" >&2
+        echo "       substrate clean --all [--force]" >&2
+        exit 1
+    fi
+
+    if $clean_all; then
+        # Find all substrate worktrees
+        local found=false
+        for worktree_path in "${SUBSTRATE_WORKTREE_BASE}"/*/; do
+            [[ -d "$worktree_path" ]] || continue
+            found=true
+            local entry
+            entry=$(basename "$worktree_path")
+            _clean_one "$entry" "$force"
+        done
+        if ! $found; then
+            echo "No substrate worktrees found."
+        fi
+    else
+        _clean_one "$name" "$force"
+    fi
+}
+
+_clean_one() {
+    local name="$1"
+    local force="$2"
+    local session="substrate-${name}"
+    local worktree_path="${SUBSTRATE_WORKTREE_BASE}/${name}"
+    local branch="substrate/${name}"
+
+    # Check if container is still running
+    if [[ -n "$(docker ps --filter "name=${session}" -q 2>/dev/null)" ]]; then
+        if [[ "$force" == "true" ]]; then
+            echo "Force-stopping running container: ${session}"
+            cmd_stop "$name"
+        else
+            echo "Error: Container ${session} is still running. Use --force to stop it first." >&2
+            return 1
+        fi
+    fi
+
+    # Detect parent repo from worktree (must happen before removing the directory)
+    local parent_repo=""
+    if [[ -d "$worktree_path" ]]; then
+        parent_repo=$(cd "$worktree_path" && git rev-parse --show-superproject-working-tree 2>/dev/null) || true
+        # Fallback: resolve git-common-dir (may be relative, so resolve from worktree)
+        if [[ -z "$parent_repo" ]]; then
+            local common_dir
+            common_dir=$(cd "$worktree_path" && realpath "$(git rev-parse --git-common-dir)" 2>/dev/null) || true
+            if [[ -n "$common_dir" ]]; then
+                parent_repo=$(dirname "$common_dir")
+            fi
+        fi
+    fi
+
+    # Remove worktree
+    if [[ -d "$worktree_path" ]]; then
+        if [[ -n "$parent_repo" ]]; then
+            git -C "$parent_repo" worktree remove "$worktree_path" --force 2>/dev/null \
+                && echo "Worktree removed: ${worktree_path}" \
+                || echo "Warning: Could not remove worktree via git, removing directory."
+        fi
+        # Ensure directory is gone even if git worktree remove failed
+        if [[ -d "$worktree_path" ]]; then
+            rm -rf "$worktree_path"
+            echo "Worktree directory removed: ${worktree_path}"
+        fi
+        # Prune stale worktree entries after manual removal
+        if [[ -n "$parent_repo" ]]; then
+            git -C "$parent_repo" worktree prune 2>/dev/null
+        fi
+    else
+        echo "Warning: Worktree not found: ${worktree_path} (already removed?)"
+    fi
+
+    # Delete branch from parent repo
+    if [[ -n "$parent_repo" ]]; then
+        git -C "$parent_repo" branch -D "$branch" 2>/dev/null \
+            && echo "Branch deleted: ${branch}" \
+            || echo "Warning: Branch not found: ${branch} (already deleted?)"
+    else
+        echo "Warning: Could not determine parent repo; branch ${branch} not deleted."
+    fi
+
+    echo "Cleaned: ${name}"
+}
+
 # --- Main ---
 
 case "${1:-}" in
@@ -173,6 +285,7 @@ case "${1:-}" in
     attach) shift; cmd_attach "$@" ;;
     list)   cmd_list ;;
     stop)   shift; cmd_stop "$@" ;;
+    clean)  shift; cmd_clean "$@" ;;
     -h|--help) usage ;;
     *)      usage ;;
 esac
