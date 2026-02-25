@@ -26,10 +26,10 @@ When you run `substrate run`, here's what happens:
 
 4. **Launches a Docker container** with:
    - Your worktree mounted at `/workspace`
-   - Credentials mounted read-only at `/tmp/substrate-auth`
+   - Credentials mounted read-only at `/tmp/koopa-auth`
    - CPU and memory limits (default: 2 CPUs, 4GB RAM)
 
-5. **The container's entrypoint** (running as root) adjusts the container's `agent` user to match your host UID/GID, copies credentials into the agent user's home directory, then drops to the `agent` user via `gosu` before launching Claude CLI. Matching UIDs means bind-mounted files keep correct ownership on the host -- no post-run cleanup needed.
+5. **The container's entrypoint** (from the shared [Koopa](https://github.com/drewdunne/koopa) image, running as root) adjusts the container's `agent` user to match your host UID/GID, copies credentials into the agent user's home directory, then drops to the `agent` user via `gosu` before launching Claude CLI. Matching UIDs means bind-mounted files keep correct ownership on the host -- no post-run cleanup needed.
 
 6. **Claude CLI starts** with `--dangerously-skip-permissions` and your prompt. It reads, writes, runs commands, and commits -- all inside the container against the worktree branch.
 
@@ -44,12 +44,13 @@ When you run `substrate run`, here's what happens:
 
 ## Installation
 
-Clone the repo and build the Docker image:
+Clone the repo and build the shared Koopa Docker image:
 
 ```bash
 git clone https://github.com/drewdunne/substrate.git ~/repos/substrate
-cd ~/repos/substrate
-docker build -t substrate:latest .
+git clone https://github.com/drewdunne/koopa.git ~/repos/koopa
+cd ~/repos/koopa
+docker build -t koopa:1.0.0 .
 ```
 
 Add `substrate` to your PATH:

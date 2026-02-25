@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-SUBSTRATE_IMAGE="substrate:latest"
+SUBSTRATE_IMAGE="koopa:1.0.0"
 SUBSTRATE_WORKTREE_BASE="/tmp/substrate"
 CLAUDE_CONFIG_DIR="${HOME}/.claude"
 DEFAULT_CPUS="2"
@@ -99,10 +99,10 @@ cmd_run() {
     echo "$prompt" > "${worktree_path}/.substrate-prompt"
 
     # Stage credentials for the entrypoint to copy with correct ownership
-    mkdir -p "${worktree_path}/.substrate-auth"
-    cp "${CLAUDE_CONFIG_DIR}/.credentials.json" "${worktree_path}/.substrate-auth/"
-    cp "${CLAUDE_CONFIG_DIR}/settings.json" "${worktree_path}/.substrate-auth/" 2>/dev/null || true
-    chmod -R a+r "${worktree_path}/.substrate-auth"
+    mkdir -p "${worktree_path}/.koopa-auth"
+    cp "${CLAUDE_CONFIG_DIR}/.credentials.json" "${worktree_path}/.koopa-auth/"
+    cp "${CLAUDE_CONFIG_DIR}/settings.json" "${worktree_path}/.koopa-auth/" 2>/dev/null || true
+    chmod -R a+r "${worktree_path}/.koopa-auth"
 
     # Write the run script (avoids nested quoting issues with tmux)
     local run_script
@@ -117,7 +117,7 @@ docker run -it --rm \\
     -e HOST_GID=\$(id -g) \\
     -v "${repo}/.git:${repo}/.git" \\
     -v "${worktree_path}:/workspace" \\
-    -v "${worktree_path}/.substrate-auth:/tmp/substrate-auth:ro" \\
+    -v "${worktree_path}/.koopa-auth:/tmp/koopa-auth:ro" \\
     ${SUBSTRATE_IMAGE} \\
     -p "\$(cat ${worktree_path}/.substrate-prompt)"
 
